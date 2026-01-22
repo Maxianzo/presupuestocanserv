@@ -136,8 +136,10 @@ button{
 </section>
 
 <button style="background:red" onclick="resetear()">Restablecer productos</button>
-
 <script>
+/* ================= CONFIG EMPRESA ================= */
+const EMPRESA_ID = "canserv";
+
 /* ================= PRODUCTOS ================= */
 const productosBase = [
  { nombre: "Pan de pancho", precio: 920 },
@@ -147,14 +149,16 @@ const productosBase = [
  { nombre: "Sandwich de miga grande", precio: 2000 }
 ];
 
+const PRECIOS_KEY = `precios_${EMPRESA_ID}`;
+
 function resetear(){
     if(confirm("¿Seguro que desea restablecer precios?")){
-        localStorage.removeItem("precios");
+        localStorage.removeItem(PRECIOS_KEY);
         location.reload();
     }
 }
 
-let productos = JSON.parse(localStorage.getItem("precios")) || productosBase;
+let productos = JSON.parse(localStorage.getItem(PRECIOS_KEY)) || productosBase;
 let pedido = {};
 
 /* ================= ADMIN ================= */
@@ -171,7 +175,7 @@ function guardarPrecios(){
     productos.forEach((p,i)=>{
         p.precio = +document.getElementById(`precio_${i}`).value || 0;
     });
-    localStorage.setItem("precios",JSON.stringify(productos));
+    localStorage.setItem(PRECIOS_KEY,JSON.stringify(productos));
     alert("Precios guardados");
 }
 
@@ -239,7 +243,8 @@ function renderPreview(){
 }
 
 /* ================= CLIENTES (LOCAL DB) ================= */
-let clientes = JSON.parse(localStorage.getItem("clientes")) || {};
+const CLIENTES_KEY = `clientes_${EMPRESA_ID}`;
+let clientes = JSON.parse(localStorage.getItem(CLIENTES_KEY)) || {};
 
 const nombreInput = document.getElementById("clienteNombre");
 const direccionInput = document.getElementById("clienteDireccion");
@@ -285,18 +290,15 @@ let textoWhatsApp = "";
 
 function calcular(){
     let total = 0;
-
-    // Encabezado compatible con WhatsApp
     textoWhatsApp = "Presupuesto\n\n";
 
     const nombre = nombreInput.value.trim();
     const direccion = direccionInput.value.trim();
     const descripcion = descripcionInput.value.trim();
 
-    // Guardar cliente y mostrar datos
     if(nombre){
         clientes[nombre] = { direccion, descripcion };
-        localStorage.setItem("clientes", JSON.stringify(clientes));
+        localStorage.setItem(CLIENTES_KEY, JSON.stringify(clientes));
 
         textoWhatsApp += `Cliente: ${nombre}\n`;
         if(direccion) textoWhatsApp += `Dirección: ${direccion}\n`;
@@ -306,10 +308,7 @@ function calcular(){
 
     let html = `
         <tr>
-            <th>Producto</th>
-            <th>Cant</th>
-            <th>Precio</th>
-            <th>Total</th>
+            <th>Producto</th><th>Cant</th><th>Precio</th><th>Total</th>
         </tr>`;
 
     Object.values(pedido).forEach(p=>{
@@ -324,7 +323,6 @@ function calcular(){
             <td>$${t}</td>
         </tr>`;
 
-        // Formato WhatsApp EXACTO como pediste
         textoWhatsApp += `* ${p.nombre} - ${p.cantidad} un - $${t.toLocaleString("es-AR")}\n`;
     });
 
@@ -334,7 +332,6 @@ function calcular(){
     document.getElementById("total").innerText =
         "TOTAL: $" + total.toLocaleString("es-AR");
 }
-
 
 function enviarWhatsApp(){
     if(!textoWhatsApp) return alert("Calcule el total primero");
