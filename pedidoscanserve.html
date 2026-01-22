@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Presupuesto</title>
+
+<style>
+body { font-family: Arial; text-transform: uppercase; }
+section { margin: 20px auto; max-width: 900px; }
+h2 { background:#f0f00a; padding:10px; border-radius:20px; text-align:center; }
+
+.panel,.pedido{
+    padding:20px;
+    border-radius:30px;
+    box-shadow:5px 5px 10px #000;
+    border:3px inset #000;
+}
+#listaClientes{
+    border:2px solid #000;
+    border-radius:15px;
+    max-height:150px;
+    overflow-y:auto;
+    display:none;
+    background:#fff;
+    position:relative;
+    z-index:1000;
+}
+
+#listaClientes div{
+    padding:10px;
+    cursor:pointer;
+    border-bottom:1px solid #ccc;
+}
+
+#listaClientes div:hover{
+    background:#f0f00a;
+}
+
+.item{
+    display:flex;
+    justify-content:space-between;
+    margin-bottom:8px;
+}
+
+.item input, textarea{
+    width:60%;
+    text-align:center;
+    border-radius:20px;
+    padding:6px;
+}
+
+input[type="search"], input[type="text"]{
+    width:100%;
+    padding:12px;
+    border-radius:20px;
+    border:2px solid #000;
+    margin-bottom:10px;
+}
+
+textarea{
+    width:100%;
+    resize:none;
+}
+
+table{
+    width:100%;
+    border-collapse:collapse;
+    margin-top:15px;
+}
+th,td{ border:1px solid #000; padding:6px; text-align:center; }
+
+button{
+    padding:8px 20px;
+    border-radius:20px;
+    border:2px solid #000;
+    cursor:pointer;
+    margin:5px;
+}
+
+.subtotal{
+    text-align:right;
+    font-weight:bold;
+    margin-top:10px;
+}
+
+@media print{
+    .panel,.acciones,.buscador,.catalogo,.cliente{ display:none; }
+    body{ text-transform:none; }
+    .pedido{ box-shadow:none; border:none; }
+}
+</style>
+</head>
+
+<body>
+
+<section class="panel">
+<h2>Configuración de precios</h2>
+<div id="config"></div>
+<button onclick="guardarPrecios()">Guardar precios</button>
+</section>
+
+<section class="pedido">
+<h2>Presupuesto</h2>
+
+<!-- CLIENTE -->
+<div class="cliente">
+    <h3>Datos del cliente</h3>
+    <input type="search" id="clienteNombre" placeholder="Nombre del cliente">
+    <div id="listaClientes"></div>
+
+    <input type="text" id="clienteDireccion" placeholder="Dirección">
+    <textarea id="clienteDescripcion" rows="3" placeholder="Descripción adicional"></textarea>
+</div>
+
+<hr>
+
+<div class="buscador">
+    <input type="search" id="busqueda" placeholder="Buscar producto...">
+</div>
+
+<div class="catalogo" id="catalogo"></div>
+
+<h3>Previsualización del pedido</h3>
+<table id="preview"></table>
+<div class="subtotal" id="subtotal">SUBTOTAL: $0</div>
+
+<div class="acciones">
+    <button onclick="calcular()">Calcular total</button>
+    <button onclick="enviarWhatsApp()">📲 WhatsApp</button>
+    <button onclick="imprimir()">🧾 PDF</button>
+</div>
+
+<table id="tabla"></table>
+<h3 id="total">TOTAL: $0</h3>
+</section>
+
+<button style="background:red" onclick="resetear()">Restablecer productos</button>
+
+<script>
+/* ================= PRODUCTOS ================= */
+const productosBase = [
+ { nombre: "Pan de pancho", precio: 920 },
+ { nombre: "Pan de hamburguesa", precio: 920 },
+ { nombre: "Prepizza", precio: 1120 },
+ { nombre: "Roscas glaciadas", precio: 10700 },
+ { nombre: "Sandwich de miga grande", precio: 2000 }
+];
+
+function resetear(){
+    if(confirm("¿Seguro que desea restablecer precios?")){
+        localStorage.removeItem("precios");
+        location.reload();
+    }
+}
+
+let productos = JSON.parse(localStorage.getItem("precios")) || productosBase;
+let pedido = {};
+
+/* ================= ADMIN ================= */
+const config = document.getElementById("config");
+productos.forEach((p,i)=>{
+    config.innerHTML += `
+        <div class="item">
+            <span>${p.nombre}</span>
+            <input type="number" id="precio_${i}" value="${p.precio}">
+        </div>`;
+});
+
+function guardarPrecios(){
+    productos.forEach((p,i)=>{
+        p.precio = +document.getElementById(`precio_${i}`).value || 0;
+    });
+    localStorage.setItem("precios",JSON.stringify(productos));
+    alert("Precios guardados");
+}
+
+/* ================= CATALOGO ================= */
+const catalogo = document.getElementById("catalogo");
+
+function renderCatalogo(f=""){
+    catalogo.innerHTML="";
+    productos.forEach((p,i)=>{
+        if(p.nombre.toLowerCase().includes(f.toLowerCase())){
+            catalogo.innerHTML+=`
+                <div class="item">
+                    <span>${p.nombre}</span>
+                    <input type="number" min="1" placeholder="Cant"
+                        onchange="agregar(${i},this.value)">
+                </div>`;
+        }
+    });
+}
+renderCatalogo();
+
+document.getElementById("busqueda")
+.addEventListener("input",e=>renderCatalogo(e.target.value));
+
+/* ================= PEDIDO ================= */
+function agregar(i,cant){
+    cant=parseInt(cant);
+    if(!cant || cant<=0) return;
+
+    if(pedido[i]) pedido[i].cantidad+=cant;
+    else pedido[i]={...productos[i],cantidad:cant};
+
+    renderPreview();
+}
+
+function quitar(i){
+    delete pedido[i];
+    renderPreview();
+}
+
+function renderPreview(){
+    let html=`
+        <tr>
+            <th>Producto</th><th>Cant</th><th>Total</th><th></th>
+        </tr>`;
+    let sub=0;
+
+    Object.keys(pedido).forEach(i=>{
+        const p=pedido[i];
+        const t=p.cantidad*p.precio;
+        sub+=t;
+
+        html+=`
+        <tr>
+            <td>${p.nombre}</td>
+            <td>${p.cantidad}</td>
+            <td>$${t}</td>
+            <td><button onclick="quitar(${i})">❌</button></td>
+        </tr>`;
+    });
+
+    document.getElementById("preview").innerHTML=html;
+    document.getElementById("subtotal").innerText=
+        "SUBTOTAL: $"+sub.toLocaleString("es-AR");
+}
+
+/* ================= CLIENTES (LOCAL DB) ================= */
+let clientes = JSON.parse(localStorage.getItem("clientes")) || {};
+
+const nombreInput = document.getElementById("clienteNombre");
+const direccionInput = document.getElementById("clienteDireccion");
+const descripcionInput = document.getElementById("clienteDescripcion");
+const listaClientes = document.getElementById("listaClientes");
+
+nombreInput.addEventListener("input",()=>{
+    const texto = nombreInput.value.toLowerCase().trim();
+    listaClientes.innerHTML = "";
+
+    if(!texto){
+        listaClientes.style.display = "none";
+        return;
+    }
+
+    const coincidencias = Object.keys(clientes)
+        .filter(n => n.toLowerCase().includes(texto));
+
+    if(coincidencias.length === 0){
+        listaClientes.style.display = "none";
+        return;
+    }
+
+    coincidencias.forEach(nombre=>{
+        const div = document.createElement("div");
+        div.innerText = nombre;
+
+        div.onclick = ()=>{
+            nombreInput.value = nombre;
+            direccionInput.value = clientes[nombre].direccion || "";
+            descripcionInput.value = clientes[nombre].descripcion || "";
+            listaClientes.style.display = "none";
+        };
+
+        listaClientes.appendChild(div);
+    });
+
+    listaClientes.style.display = "block";
+});
+
+/* ================= FINAL ================= */
+let textoWhatsApp = "";
+
+function calcular(){
+    let total = 0;
+
+    // Encabezado compatible con WhatsApp
+    textoWhatsApp = "Presupuesto\n\n";
+
+    const nombre = nombreInput.value.trim();
+    const direccion = direccionInput.value.trim();
+    const descripcion = descripcionInput.value.trim();
+
+    // Guardar cliente y mostrar datos
+    if(nombre){
+        clientes[nombre] = { direccion, descripcion };
+        localStorage.setItem("clientes", JSON.stringify(clientes));
+
+        textoWhatsApp += `Cliente: ${nombre}\n`;
+        if(direccion) textoWhatsApp += `Dirección: ${direccion}\n`;
+        if(descripcion) textoWhatsApp += `${descripcion}\n`;
+        textoWhatsApp += "\n";
+    }
+
+    let html = `
+        <tr>
+            <th>Producto</th>
+            <th>Cant</th>
+            <th>Precio</th>
+            <th>Total</th>
+        </tr>`;
+
+    Object.values(pedido).forEach(p=>{
+        const t = p.cantidad * p.precio;
+        total += t;
+
+        html += `
+        <tr>
+            <td>${p.nombre}</td>
+            <td>${p.cantidad}</td>
+            <td>$${p.precio}</td>
+            <td>$${t}</td>
+        </tr>`;
+
+        // Formato WhatsApp EXACTO como pediste
+        textoWhatsApp += `* ${p.nombre} - ${p.cantidad} un - $${t.toLocaleString("es-AR")}\n`;
+    });
+
+    textoWhatsApp += `\nTOTAL: $${total.toLocaleString("es-AR")}`;
+
+    document.getElementById("tabla").innerHTML = html;
+    document.getElementById("total").innerText =
+        "TOTAL: $" + total.toLocaleString("es-AR");
+}
+
+
+function enviarWhatsApp(){
+    if(!textoWhatsApp) return alert("Calcule el total primero");
+    window.open("https://wa.me/?text="+encodeURIComponent(textoWhatsApp));
+}
+
+function imprimir(){ window.print(); }
+</script>
+
+</body>
+</html>
